@@ -312,8 +312,8 @@ def main():
         elif eid == "cowrie.command.input":
             s["cmds"].append(e.get("input") or "")
         elif eid == "cowrie.session.file_download":
-            send(f"\u2623\uFE0F Útočník {ip} {flag(country(ip))} stiahol súbor\n"
-                 f"URL: {e.get('url', '?')}\nSHA256: {e.get('shasum', '?')}")
+            send(f"\u2623\uFE0F Útočník {ip} {flag(country(ip))} uložil súbor do pasce\n"
+                 f"Zdroj: {e.get('url') or e.get('destfile') or e.get('outfile') or 'príkaz v termináli'}\nSHA256: {e.get('shasum', '?')}\nVirusTotal: https://www.virustotal.com/gui/file/{e.get('shasum', '')}")
         elif eid == "cowrie.session.closed":
             s = sessions.pop(sid, None)
             if s and s["ok"] and cooldown_ok(("session", s["ip"])):
