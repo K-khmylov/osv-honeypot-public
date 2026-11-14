@@ -459,7 +459,7 @@
         {
           "refId": "A",
           "queryType": "instant",
-          "expr": "sum by (input) (count_over_time({job=\"cowrie\", eventid=\"cowrie.command.input\"} | json [$__range]))"
+          "expr": "sum by (cmd) (count_over_time({job=\"cowrie\", eventid=\"cowrie.command.input\"} | json input=\"input\" | label_format cmd=`{{ trunc 100 (regexReplaceAll \"[0-9a-f]{12,}\" .input \"…\") }}` [$__range]))"
         }
       ],
       "transformations": [
@@ -478,7 +478,8 @@
               "Time": true
             },
             "renameByName": {
-              "Value #A": "Počet"
+              "Value #A": "Počet",
+              "cmd": "Príkaz"
             }
           }
         },
