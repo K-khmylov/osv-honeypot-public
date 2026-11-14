@@ -1,0 +1,8 @@
+[Unit]
+Description=OSV honeypot backup
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/azureuser/osv-honeypot/scripts/backup.sh

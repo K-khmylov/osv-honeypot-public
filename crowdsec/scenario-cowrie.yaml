@@ -1,0 +1,9 @@
+type: trigger
+name: osv/cowrie-login-attempt
+description: "Login attempt on SSH honeypot"
+filter: "evt.Meta.log_type == 'cowrie' && evt.Meta.cowrie_event in ['cowrie.login.failed', 'cowrie.login.success']"
+groupby: evt.Meta.source_ip
+blackhole: 1m
+labels:
+  remediation: true
+  service: ssh

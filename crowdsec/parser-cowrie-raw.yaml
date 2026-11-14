@@ -1,0 +1,9 @@
+name: osv/cowrie-raw
+description: "Pass raw Cowrie JSON lines to the next stage"
+filter: "evt.Line.Labels.type == 'cowrie'"
+onsuccess: next_stage
+statics:
+  - parsed: program
+    expression: evt.Line.Labels.type
+  - parsed: message
+    expression: evt.Line.Raw

@@ -1,0 +1,54 @@
+local.file_match "traps" {
+  path_targets = [
+    {"__path__" = "/var/log/cowrie/cowrie.json", "job" = "cowrie"},
+    {"__path__" = "/var/log/webtrap/webtrap.json", "job" = "webtrap"},
+  ]
+}
+
+loki.source.file "traps" {
+  targets    = local.file_match.traps.targets
+  forward_to = [loki.process.traps.receiver]
+}
+
+loki.process "traps" {
+  stage.json {
+    expressions = {
+      eventid   = "eventid",
+      timestamp = "timestamp",
+      src_ip    = "src_ip",
+    }
+  }
+
+  stage.timestamp {
+    source = "timestamp"
+    format = "RFC3339Nano"
+  }
+
+  stage.geoip {
+    source  = "src_ip"
+    db      = "/etc/geoip/GeoLite2-City.mmdb"
+    db_type = "city"
+  }
+
+  stage.labels {
+    values = {
+      eventid = "",
+      country = "geoip_country_code",
+    }
+  }
+
+  stage.structured_metadata {
+    values = {
+      country_name = "geoip_country_name",
+      city         = "geoip_city_name",
+    }
+  }
+
+  forward_to = [loki.write.local.receiver]
+}
+
+loki.write "local" {
+  endpoint {
+    url = "http://loki:3100/loki/api/v1/push"
+  }
+}

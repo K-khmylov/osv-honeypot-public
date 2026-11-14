@@ -1,0 +1,13 @@
+name: osv/cowrie-logs
+description: "Parse Cowrie JSON logs"
+filter: "evt.Parsed.program == 'cowrie'"
+onsuccess: next_stage
+statics:
+  - meta: log_type
+    value: cowrie
+  - meta: source_ip
+    expression: JsonExtract(evt.Parsed.message, "src_ip")
+  - meta: cowrie_event
+    expression: JsonExtract(evt.Parsed.message, "eventid")
+  - target: evt.StrTime
+    expression: JsonExtract(evt.Parsed.message, "timestamp")

@@ -1,0 +1,6 @@
+name: osv/admin-whitelist
+description: "Never ban the admin IP"
+whitelist:
+  reason: "admin IP"
+  ip:
+    - "203.0.113.10"
