@@ -615,6 +615,202 @@
           "expr": "{job=\"webtrap\", eventid=\"web.login\"} | json | line_format \"{{.src_ip}} ({{.country}}) [{{.app}}]: {{.username}} / {{.password}}\""
         }
       ]
+    },
+    {
+      "id": 14,
+      "type": "stat",
+      "title": "Súbory v karanténe",
+      "gridPos": {
+        "x": 0,
+        "y": 54,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum(count_over_time({job=\"cowrie\", eventid=\"cowrie.session.file_download\"}[$__range]))"
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "type": "stat",
+      "title": "Unikátne súbory",
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 6,
+        "h": 5
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "#B877D9"
+          },
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "graphMode": "none",
+        "colorMode": "value"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "count(sum by (shasum) (count_over_time({job=\"cowrie\", eventid=\"cowrie.session.file_download\"} | json shasum=\"shasum\" [$__range])))"
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "type": "table",
+      "title": "Zachytené súbory",
+      "gridPos": {
+        "x": 6,
+        "y": 54,
+        "w": 9,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "instant",
+          "expr": "sum by (shasum) (count_over_time({job=\"cowrie\", eventid=\"cowrie.session.file_download\"} | json shasum=\"shasum\" [$__range]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "shasum"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "SHA-256"
+              },
+              {
+                "id": "links",
+                "value": [
+                  {
+                    "title": "Otvoriť vo VirusTotal",
+                    "url": "https://www.virustotal.com/gui/file/${__value.raw}",
+                    "targetBlank": true
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "transformations": [
+        {
+          "id": "labelsToFields",
+          "options": {}
+        },
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "renameByName": {
+              "Value #A": "Počet"
+            }
+          }
+        },
+        {
+          "id": "sortBy",
+          "options": {
+            "sort": [
+              {
+                "field": "Počet",
+                "desc": true
+              }
+            ]
+          }
+        },
+        {
+          "id": "limit",
+          "options": {
+            "limitField": 15
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "type": "logs",
+      "title": "Posledné zachytené súbory",
+      "gridPos": {
+        "x": 15,
+        "y": 54,
+        "w": 9,
+        "h": 10
+      },
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "range",
+          "expr": "{job=\"cowrie\", eventid=\"cowrie.session.file_download\"} | json | line_format \"{{.src_ip}} ({{.country}}): {{.shasum}} {{.url}}\""
+        }
+      ]
     }
   ]
 }
