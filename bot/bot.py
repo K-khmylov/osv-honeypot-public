@@ -305,7 +305,7 @@ def main():
     threading.Thread(target=commands_loop, daemon=True).start()
     sessions = {}
     attempts = deque()
-    send(f"\U0001F7E2 Honeypot bot spustený)"
+    send(f"\U0001F7E2 Honeypot bot spustený")
     for raw in follow(LOG):
         try:
             e = json.loads(raw)
