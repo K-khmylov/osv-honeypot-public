@@ -21,6 +21,7 @@ COOLDOWN = int(os.environ.get("ALERT_COOLDOWN", "1800"))
 DIGEST_TIME = os.environ.get("DIGEST_TIME", "20:00")
 TZ = ZoneInfo(os.environ.get("TZ_NAME", "Europe/Bratislava"))
 API = f"https://api.telegram.org/bot{TOKEN}"
+VT_URL = "https://www.virustotal.com/gui/file/"
 
 # period key -> (Loki range, heading text)
 PERIODS = {
@@ -52,11 +53,11 @@ def flag(cc):
     """ISO country code -> flag emoji (BG -> two regional indicator letters)."""
     if len(cc) == 2 and cc.isalpha():
         return "".join(chr(0x1F1E6 + ord(ch) - ord("A")) for ch in cc.upper())
-    return "\U0001F3F3\uFE0F"
+    return "\U0001F3F3️"
 
 
 def fmt(n):
-    return f"{n:,}".replace(",", "\u00a0")
+    return f"{n:,}".replace(",", " ")
 
 
 # ---------- Telegram API ----------
@@ -79,9 +80,11 @@ def _params(text, buttons, parse_html):
 def send(text, buttons=None, parse_html=False):
     try:
         return tg("sendMessage", _params(text, buttons, parse_html))["result"]["message_id"]
+    except urllib.error.HTTPError as exc:
+        print("Telegram error:", exc.read().decode(errors="replace"), flush=True)
     except Exception as exc:
         print("Telegram error:", exc, flush=True)
-        return None
+    return None
 
 
 def edit(message_id, text, buttons=None, parse_html=False):
@@ -133,40 +136,50 @@ def build_stats(period):
     cmd = '{job="cowrie", eventid="cowrie.command.input"}'
     logins = '{job="cowrie", eventid=~"cowrie.login.(success|failed)"}'
     web = '{job="webtrap", eventid="web.login"}'
+    dl = '{job="cowrie", eventid="cowrie.session.file_download"}'
 
     connects = scalar(f"sum(count_over_time({c}[{rng}]))")
     ips = scalar(f"count(sum by (src_ip) (count_over_time({c} | json [{rng}])))")
     success = scalar(f"sum(count_over_time({s}[{rng}]))")
     commands = scalar(f"sum(count_over_time({cmd}[{rng}]))")
     web_logins = scalar(f"sum(count_over_time({web}[{rng}]))")
+    files = scalar(f"sum(count_over_time({dl}[{rng}]))")
+    files_unique = scalar(f'count(sum by (shasum) (count_over_time({dl} | json shasum="shasum" [{rng}])))')
     countries = top_items(f"sum by (country) (count_over_time({c}[{rng}]))", "country")
     passwords = top_items(f"sum by (password) (count_over_time({logins} | json [{rng}]))", "password")
     users = top_items(f"sum by (username) (count_over_time({logins} | json [{rng}]))", "username")
+    files_top = top_items(f'sum by (shasum) (count_over_time({dl} | json shasum="shasum" [{rng}]))', "shasum", 3)
 
     lines = [
         f"\U0001F4CA <b>Štatistika – {label}</b>",
         "",
         f"\U0001F50C Pripojenia: <b>{fmt(connects)}</b>",
         f"\U0001F310 Unikátne IP: <b>{fmt(ips)}</b>",
-        f"\U0001F513 Úspešné prihlásenia: <b>{fmt(success)}</b>",
-        f"\u2328\uFE0F Zadané príkazy: <b>{fmt(commands)}</b>",
-        f"\U0001F578\uFE0F Web pasca – prihlásenia: <b>{fmt(web_logins)}</b>",
+        f"\U0001F513 Prihlásenia do pasce: <b>{fmt(success)}</b>",
+        f"⌨️ Zadané príkazy: <b>{fmt(commands)}</b>",
+        f"\U0001F578️ Web pasca – prihlásenia: <b>{fmt(web_logins)}</b>",
+        f"☣️ Súbory v karanténe: <b>{fmt(files)}</b> (unikátne: {fmt(files_unique)})",
         "",
         "\U0001F30D <b>Top krajiny</b>",
     ]
     lines += [f"{flag(k)} {html.escape(k)} – {fmt(v)}" for k, v in countries] or ["–"]
     lines += ["", "\U0001F511 <b>Top heslá</b>"] + ranked(passwords)
     lines += ["", "\U0001F464 <b>Top mená</b>"] + ranked(users)
+    if files_top:
+        lines += ["", "☣️ <b>Top súbory</b> (odkaz na VirusTotal)"]
+        lines += [f'{n}. <a href="{VT_URL}{html.escape(h)}">{html.escape(h[:12])}…</a> – {fmt(v)}'
+                  for n, (h, v) in enumerate(files_top, 1)]
+    lines += ["", f"\U0001F552 <i>Aktualizované {datetime.now(TZ):%d.%m. %H:%M}</i>"]
     return "\n".join(lines)
 
 
 def stats_buttons(active):
-    return [[{"text": ("\u2705 " if key == active else "") + text,
+    return [[{"text": ("✅ " if key == active else "") + text,
               "callback_data": f"stats:{key}"} for key, text in BUTTONS]]
 
 
 def show_stats(period, message_id=None):
-    loading = "\u23F3 Počítam…"
+    loading = "⏳ Počítam…"
     if message_id is None:
         message_id = send(loading)
         if message_id is None:
@@ -176,8 +189,8 @@ def show_stats(period, message_id=None):
     try:
         text = build_stats(period)
     except Exception as exc:
-        print("Stats error:", exc, flush=True)
-        edit(message_id, "\u26A0\uFE0F Štatistiku sa nepodarilo vytvoriť", stats_buttons(period))
+        print("Stats error:", repr(exc), flush=True)
+        edit(message_id, "⚠️ Štatistiku sa nepodarilo vytvoriť", stats_buttons(period))
         return
     edit(message_id, text, stats_buttons(period), parse_html=True)
 
@@ -214,29 +227,35 @@ def commands_loop():
             continue
         for upd in updates:
             offset = upd["update_id"] + 1
+            try:
+                handle_update(upd)
+            except Exception as exc:
+                print("Update error:", repr(exc), flush=True)
 
-            cq = upd.get("callback_query")
-            if cq:
-                msg = cq.get("message", {})
-                try:
-                    tg("answerCallbackQuery", {"callback_query_id": cq["id"]})
-                except Exception:
-                    pass
-                data = cq.get("data", "")
-                if str(msg.get("chat", {}).get("id")) == str(CHAT_ID) and data.startswith("stats:"):
-                    period = data.split(":", 1)[1]
-                    if period in PERIODS:
-                        show_stats(period, msg.get("message_id"))
-                continue
 
-            msg = upd.get("message") or {}
-            if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
-                continue
-            cmd = (msg.get("text") or "").strip().split("@")[0]
-            if cmd == "/stats":
-                show_stats("24h")
-            elif cmd in ("/start", "/help"):
-                send(HELP_TEXT)
+def handle_update(upd):
+    cq = upd.get("callback_query")
+    if cq:
+        msg = cq.get("message", {})
+        try:
+            tg("answerCallbackQuery", {"callback_query_id": cq["id"]})
+        except Exception:
+            pass
+        data = cq.get("data", "")
+        if str(msg.get("chat", {}).get("id")) == str(CHAT_ID) and data.startswith("stats:"):
+            period = data.split(":", 1)[1]
+            if period in PERIODS:
+                show_stats(period, msg.get("message_id"))
+        return
+
+    msg = upd.get("message") or {}
+    if str(msg.get("chat", {}).get("id")) != str(CHAT_ID):
+        return
+    cmd = (msg.get("text") or "").strip().split("@")[0]
+    if cmd == "/stats":
+        show_stats("24h")
+    elif cmd in ("/start", "/help"):
+        send(HELP_TEXT)
 
 
 # ---------- real-time alerts (reads Cowrie log) ----------
@@ -286,7 +305,7 @@ def main():
     threading.Thread(target=commands_loop, daemon=True).start()
     sessions = {}
     attempts = deque()
-    send(f"\U0001F7E2 Honeypot bot spustený")
+    send(f"\U0001F7E2 Honeypot bot spustený)
     for raw in follow(LOG):
         try:
             e = json.loads(raw)
@@ -312,8 +331,12 @@ def main():
         elif eid == "cowrie.command.input":
             s["cmds"].append(e.get("input") or "")
         elif eid == "cowrie.session.file_download":
-            send(f"\u2623\uFE0F Útočník {ip} {flag(country(ip))} uložil súbor do pasce\n"
-                 f"Zdroj: {e.get('url') or e.get('destfile') or e.get('outfile') or 'príkaz v termináli'}\nSHA256: {e.get('shasum', '?')}\nVirusTotal: https://www.virustotal.com/gui/file/{e.get('shasum', '')}")
+            sha = e.get("shasum", "")
+            source = e.get("url") or e.get("destfile") or e.get("outfile") or "príkaz v termináli"
+            send(f"☣️ Útočník {ip} {flag(country(ip))} uložil súbor do pasce\n"
+                 f"Zdroj: {source}\n"
+                 f"SHA256: {sha or '?'}\n"
+                 f"VirusTotal: {VT_URL}{sha}")
         elif eid == "cowrie.session.closed":
             s = sessions.pop(sid, None)
             if s and s["ok"] and cooldown_ok(("session", s["ip"])):
